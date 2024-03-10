@@ -20,6 +20,9 @@ from tokenizers.models import WordLevel
 from tokenizers.trainers import WordLevelTrainer
 from tokenizers.pre_tokenizers import Whitespace
 
+from torch.profiler import ExecutionGraphObserver
+
+
 import torchmetrics
 from torch.utils.tensorboard import SummaryWriter
 
@@ -218,11 +221,21 @@ def train_model(config):
         print('No model to preload, starting from scratch')
 
     loss_fn = nn.CrossEntropyLoss(ignore_index=tokenizer_src.token_to_id('[PAD]'), label_smoothing=0.1).to(device)
+    
+    # 开启ET 
+    out_file_prefix = "transformer"
+    et = None
+    et_file = f"{out_file_prefix}_et.json"
+    et = ExecutionGraphObserver()
+    et.register_callback(et_file)
+    et.start()
+
 
     for epoch in range(initial_epoch, config['num_epochs']):
         torch.cuda.empty_cache()
         model.train()
         batch_iterator = tqdm(train_dataloader, desc=f"Processing Epoch {epoch:02d}")
+        
         for batch in batch_iterator:
 
             encoder_input = batch['encoder_input'].to(device) # (b, seq_len)
@@ -254,6 +267,10 @@ def train_model(config):
             optimizer.zero_grad(set_to_none=True)
 
             global_step += 1
+            
+        # stop et
+        et.stop()
+        et.unregister_callback()
 
         # Run validation at the end of every epoch
         run_validation(model, val_dataloader, tokenizer_src, tokenizer_tgt, config['seq_len'], device, lambda msg: batch_iterator.write(msg), global_step, writer)
