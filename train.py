@@ -230,47 +230,68 @@ def train_model(config):
     et.register_callback(et_file)
     et.start()
 
-
+    
     for epoch in range(initial_epoch, config['num_epochs']):
         torch.cuda.empty_cache()
         model.train()
         batch_iterator = tqdm(train_dataloader, desc=f"Processing Epoch {epoch:02d}")
-        
-        for batch in batch_iterator:
+        with torch.profiler.profile(
+            activities=[
+                torch.profiler.ProfilerActivity.CPU,
+                torch.profiler.ProfilerActivity.CUDA  # 同时监控CPU和CUDA的活动
+            ],
+            schedule=torch.profiler.schedule(
+                wait=1,
+                warmup=1,
+                active=3,
+                repeat=2
+            ),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler('./logs'),  # 输出到logs目录
+            record_shapes=True,
+            profile_memory=True,  # 记录内存信息
+            with_stack=True  # 记录堆栈信息
+        ) as profiler:
+            for batch in batch_iterator:
 
-            encoder_input = batch['encoder_input'].to(device) # (b, seq_len)
-            decoder_input = batch['decoder_input'].to(device) # (B, seq_len)
-            encoder_mask = batch['encoder_mask'].to(device) # (B, 1, 1, seq_len)
-            decoder_mask = batch['decoder_mask'].to(device) # (B, 1, seq_len, seq_len)
+                encoder_input = batch['encoder_input'].to(device) # (b, seq_len)
+                decoder_input = batch['decoder_input'].to(device) # (B, seq_len)
+                encoder_mask = batch['encoder_mask'].to(device) # (B, 1, 1, seq_len)
+                decoder_mask = batch['decoder_mask'].to(device) # (B, 1, seq_len, seq_len)
 
-            # Run the tensors through the encoder, decoder and the projection layer
-            encoder_output = model.encode(encoder_input, encoder_mask) # (B, seq_len, d_model)
-            decoder_output = model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask) # (B, seq_len, d_model)
-            proj_output = model.project(decoder_output) # (B, seq_len, vocab_size)
+                # Run the tensors through the encoder, decoder and the projection layer
+                encoder_output = model.encode(encoder_input, encoder_mask) # (B, seq_len, d_model)
+                decoder_output = model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask) # (B, seq_len, d_model)
+                proj_output = model.project(decoder_output) # (B, seq_len, vocab_size)
 
-            # Compare the output with the label
-            label = batch['label'].to(device) # (B, seq_len)
+                # Compare the output with the label
+                label = batch['label'].to(device) # (B, seq_len)
 
-            # Compute the loss using a simple cross entropy
-            loss = loss_fn(proj_output.view(-1, tokenizer_tgt.get_vocab_size()), label.view(-1))
-            batch_iterator.set_postfix({"loss": f"{loss.item():6.3f}"})
+                # Compute the loss using a simple cross entropy
+                loss = loss_fn(proj_output.view(-1, tokenizer_tgt.get_vocab_size()), label.view(-1))
+                batch_iterator.set_postfix({"loss": f"{loss.item():6.3f}"})
 
-            # Log the loss
-            writer.add_scalar('train loss', loss.item(), global_step)
-            writer.flush()
+                # Log the loss
+                writer.add_scalar('train loss', loss.item(), global_step)
+                writer.flush()
 
-            # Backpropagate the loss
-            loss.backward()
+                # Backpropagate the loss
+                loss.backward()
 
-            # Update the weights
-            optimizer.step()
-            optimizer.zero_grad(set_to_none=True)
+                # Update the weights
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
 
-            global_step += 1
-            
-        # stop et
-        et.stop()
-        et.unregister_callback()
+                print('global_step = ' + str(global_step))
+                global_step += 1
+
+
+                profiler.step()  # 更新profiler到下一步
+                print('finish one  profiler step')
+                # stop et
+                et.stop()
+                et.unregister_callback()
+                print('ET trace colletion done')
+                
 
         # Run validation at the end of every epoch
         run_validation(model, val_dataloader, tokenizer_src, tokenizer_tgt, config['seq_len'], device, lambda msg: batch_iterator.write(msg), global_step, writer)
@@ -284,6 +305,7 @@ def train_model(config):
             'global_step': global_step
         }, model_filename)
 
+        break
 
 if __name__ == '__main__':
     warnings.filterwarnings("ignore")
