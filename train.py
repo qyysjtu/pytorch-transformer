@@ -291,7 +291,7 @@ def train_model(config):
                 et.stop()
                 et.unregister_callback()
                 print('ET trace colletion done')
-                
+        break
 
         # Run validation at the end of every epoch
         run_validation(model, val_dataloader, tokenizer_src, tokenizer_tgt, config['seq_len'], device, lambda msg: batch_iterator.write(msg), global_step, writer)
