@@ -287,10 +287,12 @@ def train_model(config):
 
                 profiler.step()  # 更新profiler到下一步
                 print('finish one  profiler step')
-                # stop et
-                et.stop()
-                et.unregister_callback()
-                print('ET trace colletion done')
+                if global_step == 20:
+                    # stop et
+                    et.stop()
+                    et.unregister_callback()
+                    print('ET trace colletion done')
+                    break
         break
 
         # Run validation at the end of every epoch
