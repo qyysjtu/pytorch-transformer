@@ -20,7 +20,7 @@ from tokenizers.models import WordLevel
 from tokenizers.trainers import WordLevelTrainer
 from tokenizers.pre_tokenizers import Whitespace
 
-from torch.profiler import ExecutionGraphObserver
+from torch.profiler import ExecutionTraceObserver
 
 
 import torchmetrics
@@ -226,7 +226,7 @@ def train_model(config):
     out_file_prefix = "transformer"
     et = None
     et_file = f"{out_file_prefix}_et.json"
-    et = ExecutionGraphObserver()
+    et = ExecutionTraceObserver()
     et.register_callback(et_file)
     et.start()
 
